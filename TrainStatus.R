@@ -1,5 +1,6 @@
 library(twitteR)
 library(dplyr)
+library(chron)
 library(stringr)
 
 consumer_key <- "WrvZpySST9ozDztvldEBi8Ibl"
@@ -14,6 +15,7 @@ tw.df<-select(tw.df, c(text, created))
 tw.df$created<-as.POSIXlt(tw.df$created, tz="America/Los_Angeles")
 tw.df$hour<-(tw.df$created)$hour
 tw.df$date<-as.Date(tw.df$created)
+tw.df$date<-chron(dates.=as.character(as.Date(tw.df$created)), format = "y-m-d")
 tw.df$weekday<-weekdays(tw.df$date)
 tw.df<-select(tw.df, -created)
 incidents_byDate<-tw.df %>% group_by(date) %>% summarise(n_tw = n())
