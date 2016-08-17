@@ -10,8 +10,8 @@ access_secret <- "w5708WDaVK6mATGshYJNwFupAJ7AxZkCJ9XbzHGRvvV6f"
 
 setup_twitter_oauth(consumer_key, consumer_secret, access_token, access_secret)
 timeline<-userTimeline("CaltrainStatus", n=3000)
-tw.df<-twListToDF(timeline)
-tw.df<-select(tw.df, c(text, created))
+timeline.df<-twListToDF(timeline)
+tw.df<-select(timeline.df, c(text, created))
 tw.df$created<-as.POSIXlt(tw.df$created, tz="America/Los_Angeles")
 tw.df$hour<-(tw.df$created)$hour
 tw.df$date<-as.Date(tw.df$created)
