@@ -3,6 +3,8 @@ library(dplyr)
 library(chron)
 library(stringr)
 require(bit64)
+library(forecast)
+require(tseries)
 
 consumer_key <- "WrvZpySST9ozDztvldEBi8Ibl"
 consumer_secret <- "0pGP603uWcbthQTdM8arOF34YjhPCYwblx3oj2rYbjAuuBLSpK"
@@ -53,18 +55,32 @@ tw.df$trainType[limited.rows]<-"limited"
 tw.df$trainType[bullet.rows]<-"bullet"
 
 #Extract time information
-tw.df$created<-round(as.POSIXlt(tw.df$created, tz="America/Los_Angeles"), units="hours")
-tw.df$hour<-tw.df$created$hour
-tw.df$date<-as.Date(tw.df$created)
-#tw.df$date<-chron(dates.=as.character(as.Date(tw.df$created)), format = "y-m-d")
-tw.df$weekday<-weekdays(tw.df$date)
+created<-round(as.POSIXlt(tw.df$created, tz="America/Los_Angeles"), units="hours")
+tw.df$hour<-created$hour
+tw.df$date<-as.Date(created)
+#tw.df$date<-chron(dates.=as.character(tw.df$date), format = "y-m-d")
+tw.df$weekday<-as.factor(weekdays(chron(dates.=as.character(tw.df$date), format = "y-m-d")))
 tw.df<-select(tw.df, -created)
-incidents_byDate<-tw.df %>% group_by(date) %>% summarise(n_tw = n())
 
-alldays<-seq(incidents_byDate$date[1], 
+incidents_byDate<-tw.df %>% group_by(date) %>% summarise(n_tw = n())
+alldays<-data.frame(date=seq(incidents_byDate$date[1], 
              length=as.integer(max(incidents_byDate$date)-min(incidents_byDate$date)+1), 
-             by="+1 day")
-plot(incidents_byDate, type="l")
+             by="1 day"))
+incidents_alldays<-left_join(alldays, incidents_byDate, by="date")
+incidents_alldays$n_tw[is.na(incidents_alldays$n_tw)]<-0
+plot(incidents_alldays, type="l", xlab="Date", ylab="Incidents")
+hist(incidents_alldays$n_tw, xlab = "Incidents", ylab = "Days", main = "Histogram of incidents per day")
+
+ts.incidents<-ts(incidents_alldays$n_tw, start=1, frequency = 7)
+plot(ts.incidents)
+ndiffs(ts.incidents) #return 0
+adf.test(ts.incidents) #it is stationary
+fit.ts<-stl(ts.incidents, s.window = "period")
+plot(fit.ts)
+fit.ets<-ets(ts.incidents)
+pred.ets<-predict(fit.ets, 3)
+plot(pred.ets)
+
 incidents_byWeekday<-tw.df %>% group_by(weekday) %>% summarise(n_tw = n())
 plot(incidents_byWeekday)
 incidents_byHour<-tw.df %>% group_by(hour) %>% summarise(n_tw = n())
