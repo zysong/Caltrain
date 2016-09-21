@@ -1,8 +1,8 @@
 library(twitteR)
 library(dplyr)
-library(chron)
-library(stringr)
+library(tidyr)
 require(bit64)
+library(stringr)
 library(forecast)
 require(tseries)
 
@@ -25,6 +25,7 @@ timeline<-function(userID="CaltrainStatus", nQuery=3200, sinceDate="2014-08-17")
   return(tl.df)
 }
 timeline.df<-timeline()
+write.csv(timeline.df, "timeline.csv")
 DateHour<-round(timeline.df$created, units="hours")
 
 tw.df<-select(timeline.df, c(text, created))
@@ -58,8 +59,7 @@ tw.df$trainType[bullet.rows]<-"bullet"
 created<-round(as.POSIXlt(tw.df$created, tz="America/Los_Angeles"), units="hours")
 tw.df$hour<-created$hour
 tw.df$date<-as.Date(created)
-#tw.df$date<-chron(dates.=as.character(tw.df$date), format = "y-m-d")
-tw.df$weekday<-as.factor(weekdays(chron(dates.=as.character(tw.df$date), format = "y-m-d")))
+tw.df$weekday<-as.factor(weekdays(tw.df$date))
 tw.df<-select(tw.df, -created)
 
 incidents_byDate<-tw.df %>% group_by(date) %>% summarise(n_tw = n())
@@ -68,21 +68,33 @@ alldays<-data.frame(date=seq(incidents_byDate$date[1],
              by="1 day"))
 incidents_alldays<-left_join(alldays, incidents_byDate, by="date")
 incidents_alldays$n_tw[is.na(incidents_alldays$n_tw)]<-0
-plot(incidents_alldays, type="l", xlab="Date", ylab="Incidents")
-hist(incidents_alldays$n_tw, xlab = "Incidents", ylab = "Days", main = "Histogram of incidents per day")
+incidents_alldays$weekday<-as.factor(weekdays(incidents_alldays$date))
+plot(incidents_alldays[,1:2], type="l", xlab="Date", ylab="Incidents")
+hist(incidents_alldays$n_tw, breaks=40, xlab = "Incidents", ylab = "Days", main = "Histogram of incidents per day")
 
 ts.incidents<-ts(incidents_alldays$n_tw, start=1, frequency = 7)
-plot(ts.incidents)
+msts.incidents<-msts(incidents_alldays$n_tw, c(7, 30), 7)
+plot(ts.incidents, xlab="Time (week)", ylab="Incidents")
+plot(msts.incidents, xlab="Time (week)", ylab="Incidents")
 ndiffs(ts.incidents) #return 0
 adf.test(ts.incidents) #it is stationary
 fit.ts<-stl(ts.incidents, s.window = "period")
 plot(fit.ts)
 fit.ets<-ets(ts.incidents)
-pred.ets<-predict(fit.ets, 3)
+pred.ets<-forecast(fit.ets, 5)
 plot(pred.ets)
+Acf(ts.incidents)
+Pacf(ts.incidents)
+fit.arima<-auto.arima(ts.incidents)
+plot(forecast(fit.arima, 5))
 
 incidents_byWeekday<-tw.df %>% group_by(weekday) %>% summarise(n_tw = n())
 plot(incidents_byWeekday)
+#Tuesday tends to have more incidents. Let's test the difference
+lm.weekday<-lm(n_tw~weekday, data=incidents_alldays)
+summary(lm.weekday)
+hist(subset(incidents_alldays, weekday=="Tuesday")$n_tw, breaks = 40, xlab = "Incidents on Tuesdays", main="")
+
 incidents_byHour<-tw.df %>% group_by(hour) %>% summarise(n_tw = n())
 plot(incidents_byHour)
 
