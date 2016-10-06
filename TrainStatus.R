@@ -3,8 +3,15 @@ library(dplyr)
 library(tidyr)
 require(bit64)
 library(stringr)
+library(zoo)
 library(forecast)
 require(tseries)
+library(geoR)
+library(ggplot2)
+library(caret)
+library(tm)
+library(SnowballC)
+library(wordcloud)
 
 consumer_key <- "WrvZpySST9ozDztvldEBi8Ibl"
 consumer_secret <- "0pGP603uWcbthQTdM8arOF34YjhPCYwblx3oj2rYbjAuuBLSpK"
@@ -26,13 +33,14 @@ timeline<-function(userID="CaltrainStatus", nQuery=3200, sinceDate="2014-08-17")
 }
 timeline.df<-timeline()
 write.csv(timeline.df, "timeline.csv")
+#timeline.df<-read.csv("timeline.csv")
 DateHour<-round(timeline.df$created, units="hours")
 
 tw.df<-select(timeline.df, c(text, created))
 
 #Extract train ID
 tw.df$trainID<-NA
-text.split<-str_split_fixed(tw.df$text, "@", 2)
+text.split<-str_split_fixed(tw.df$text, "#Caltrain", 2)
 tw.df$text<-text.split[,1]
 tw.df$text<-gsub("[0-9]{4,}", "Numbers", x=tw.df$text)
 id.rows<-grep("[12348][0-9]{2}", tw.df$text)
@@ -62,6 +70,17 @@ tw.df$date<-as.Date(created)
 tw.df$weekday<-as.factor(weekdays(tw.df$date))
 tw.df<-select(tw.df, -created)
 
+#Count words and plot wordcloud
+tw.text<-str_replace_all(tw.df$text,"[^[:graph:]]", " ")
+twCorpus<-Corpus(VectorSource(tw.text))
+twCorpus<-tm_map(twCorpus, PlainTextDocument)
+twCorpus<-tm_map(twCorpus, removeWords, stopwords('english'), mc.cores=1)
+twCorpus<-tm_map(twCorpus, content_transformer(tolower))
+twCorpus<-tm_map(twCorpus, removePunctuation)
+twCorpus<-tm_map(twCorpus, stemDocument)
+wordcloud(twCorpus, max.words = 100, random.order = FALSE)
+
+#Aggregate incidents by day
 incidents_byDate<-tw.df %>% group_by(date) %>% summarise(n_tw = n())
 alldays<-data.frame(date=seq(incidents_byDate$date[1], 
              length=as.integer(max(incidents_byDate$date)-min(incidents_byDate$date)+1), 
@@ -72,14 +91,28 @@ incidents_alldays$weekday<-as.factor(weekdays(incidents_alldays$date))
 plot(incidents_alldays[,1:2], type="l", xlab="Date", ylab="Incidents")
 hist(incidents_alldays$n_tw, breaks=40, xlab = "Incidents", ylab = "Days", main = "Histogram of incidents per day")
 
+#Aggregate incidents by week
+incidents_alldays$week<-rep(1:ceiling(nrow(incidents_alldays)/7), each=7, length.out=nrow(incidents_alldays))
+incidents_byWeek<-incidents_alldays %>% group_by(week) %>% summarise(incidents=sum(n_tw))
+incidents_byWeek<-incidents_byWeek[-nrow(incidents_byWeek),]
+hist(incidents_byWeek$incidents)
+hist(log1p(incidents_byWeek$incidents), breaks = 20)
+firstWeek<-as.integer(difftime(incidents_alldays$date[1], as.Date("2014-01-01"), units = "week"))
+ts.week<-ts(incidents_byWeek$incidents, start=1, frequency = 1)
+plot(ts.week)
+adf.test(ts.week) #It is stationary
+ets.week<-ets(ts.week)
+pred.ets.week<-forecast(ets.week, lower=0)
+plot(pred.ets.week)
+
 ts.incidents<-ts(incidents_alldays$n_tw, start=1, frequency = 7)
 msts.incidents<-msts(incidents_alldays$n_tw, c(7, 30), 7)
 plot(ts.incidents, xlab="Time (week)", ylab="Incidents")
 plot(msts.incidents, xlab="Time (week)", ylab="Incidents")
 ndiffs(ts.incidents) #return 0
 adf.test(ts.incidents) #it is stationary
-fit.ts<-stl(ts.incidents, s.window = "period")
-plot(fit.ts)
+stl.ts<-stl(ts.incidents, s.window = "period")
+plot(stl.ts)
 fit.ets<-ets(ts.incidents)
 pred.ets<-forecast(fit.ets, 5)
 plot(pred.ets)
@@ -87,6 +120,11 @@ Acf(ts.incidents)
 Pacf(ts.incidents)
 fit.arima<-auto.arima(ts.incidents)
 plot(forecast(fit.arima, 5))
+arimafcasts<-rollapplyr(ts.incidents, width=28, function(x) forecast(auto.arima(x), 1)$mean)
+
+mape<-function(act, pred){
+  mean(abs(1-pred/act))
+}
 
 incidents_byWeekday<-tw.df %>% group_by(weekday) %>% summarise(n_tw = n())
 plot(incidents_byWeekday)
